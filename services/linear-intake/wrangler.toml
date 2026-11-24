@@ -1,0 +1,11 @@
+name = "linear-issue-intake"
+main = "worker.mjs"
+compatibility_date = "2026-11-24"
+
+[observability]
+enabled = true
+
+[[d1_databases]]
+binding = "INTAKE"
+database_name = "linear-issue-intake"
+database_id = "00000000-0000-0000-0000-000000000000"
