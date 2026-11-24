@@ -17,3 +17,14 @@ npx wrangler d1 execute INTAKE --remote --command 'SELECT identifier, issue_url,
 ```
 
 [Linear webhook setup and signing](https://linear.app/developers/webhooks)
+
+## Enable planning
+
+After deploying the Workflow binding, add two Worker secrets in Cloudflare:
+
+- `OPENAI_API_KEY` for the planning model. The default is `gpt-5-mini`. Set `PLANNING_MODEL` to another Responses API model with structured output if needed.
+- `LINEAR_API_KEY` with access to the configured team and permission to read and create comments. The Worker uses a Linear personal API key in the Authorization header.
+
+The worker sends new issue titles and descriptions to the planning API. Keep credentials and confidential material out of ticket descriptions used for planning. Set both secrets before creating the verification issue. When either secret is absent, intake continues to record issues. Planning starts on issue creation and does not backfill earlier deliveries.
+
+Create a new issue and check the `linear-issue-planner` Workflow instance and the resulting comment in Linear. Send the same signed issue-created delivery twice and confirm only one comment exists. Priority and workflow state are controlled in Linear by the project owner.

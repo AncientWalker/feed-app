@@ -1,3 +1,6 @@
+import { WorkflowEntrypoint } from 'cloudflare:workers';
+import { makePlan, postPlan } from './planner.mjs';
+
 const encoder = new TextEncoder();
 
 function respond(status) {
@@ -61,10 +64,35 @@ export default {
       if (result.meta.changes === 1) {
         console.log(JSON.stringify({ event: 'linear.issue.received', issueId: issue.id, identifier }));
       }
+      if (env.OPENAI_API_KEY && env.LINEAR_API_KEY) {
+        await env.ISSUE_PLANNER.createBatch([{ id: issue.id, params: { issueId: issue.id } }]);
+      }
       return respond(200);
     } catch {
-      console.error('Linear intake could not write to D1');
+      console.error('Could not complete Linear intake');
       return respond(503);
     }
   },
 };
+
+
+export class IssuePlanner extends WorkflowEntrypoint {
+  async run(event, step) {
+    const { issueId } = event.payload;
+    const proposal = await step.do('Generate implementation proposal', {
+      timeout: '2 minutes',
+      retries: { limit: 3, delay: '30 seconds', backoff: 'exponential' },
+    }, async () => {
+      const issue = await this.env.INTAKE.prepare(
+        'SELECT title, description, project_id FROM issue_intake WHERE issue_id = ? AND team_id = ?'
+      ).bind(issueId, this.env.LINEAR_TEAM_ID).first();
+      if (!issue) throw new Error('No intake record for issue');
+      return makePlan(issue, this.env);
+    });
+    const id = await step.do('Post proposal to Linear', {
+      retries: { limit: 3, delay: '30 seconds', backoff: 'exponential' },
+    }, async () => postPlan(issueId, proposal, this.env));
+    console.log(JSON.stringify({ event: 'linear.issue.planned', issueId, commentId: id }));
+    return { issueId, commentId: id };
+  }
+}
