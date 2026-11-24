@@ -1,4 +1,4 @@
-name = "linear-issue-intake"
+name = "feed-app"
 main = "worker.mjs"
 compatibility_date = "2026-11-24"
 
@@ -8,4 +8,4 @@ enabled = true
 [[d1_databases]]
 binding = "INTAKE"
 database_name = "linear-issue-intake"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "521864c1-5623-4520-b89c-74d75746ccfd"
