@@ -81,6 +81,16 @@ async function linear(env, query, variables) {
   return response.json();
 }
 
+export async function readIssue(issueId, env) {
+  const result = await linear(env, `query PlanningIssue($id: String!) {
+    issue(id: $id) { title description project { id } team { id } archivedAt }
+  }`, { id: issueId });
+  const issue = result.data?.issue;
+  if (!issue) throw new Error('Cannot read the Linear issue');
+  if (issue.team?.id !== env.LINEAR_TEAM_ID || issue.archivedAt) return null;
+  return { title: issue.title, description: issue.description, project_id: issue.project?.id ?? null };
+}
+
 export async function postPlan(issueId, plan, env) {
   const id = await commentId(issueId);
   const body = [
@@ -99,8 +109,14 @@ export async function postPlan(issueId, plan, env) {
     // Linear may have committed the comment before the request timed out.
   }
   const existing = await linear(env, `query ExistingPlan($id: String!) {
-    comment(id: $id) { id issue { id } }
+    comment(id: $id) { id body issue { id } }
   }`, { id });
-  if (existing.data?.comment?.id === id && existing.data.comment.issue?.id === issueId) return id;
+  if (existing.data?.comment?.id === id && existing.data.comment.issue?.id === issueId) {
+    if (existing.data.comment.body === body) return id;
+    const result = await linear(env, `mutation UpdatePlan($id: String!, $input: CommentUpdateInput!) {
+      commentUpdate(id: $id, input: $input) { success comment { id } }
+    }`, { id, input: { body } });
+    if (result.data?.commentUpdate?.success && result.data.commentUpdate.comment?.id === id) return id;
+  }
   throw new Error('Could not confirm the Linear planning comment');
 }
