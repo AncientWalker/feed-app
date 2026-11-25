@@ -1,6 +1,7 @@
 name = "feed-app"
 main = "worker.mjs"
 compatibility_date = "2026-11-24"
+keep_vars = true
 
 [observability]
 enabled = true
@@ -9,3 +10,8 @@ enabled = true
 binding = "INTAKE"
 database_name = "linear-issue-intake"
 database_id = "521864c1-5623-4520-b89c-74d75746ccfd"
+
+[[workflows]]
+name = "linear-issue-planner"
+binding = "ISSUE_PLANNER"
+class_name = "IssuePlanner"
