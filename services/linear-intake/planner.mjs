@@ -77,8 +77,31 @@ async function linear(env, query, variables) {
     body: JSON.stringify({ query, variables }),
     signal: AbortSignal.timeout(20_000),
   });
-  if (!response.ok) throw new Error('Linear API HTTP ' + response.status);
-  return response.json();
+  const result = await response.json().catch(() => null);
+  if (!response.ok || !result) {
+    throw new Error(linearFailure('Linear API', result, response.status));
+  }
+  return result;
+}
+
+function linearFailure(operation, result, status) {
+  const error = result?.errors?.[0];
+  const extension = error?.extensions;
+  const codes = [extension?.code, extension?.type].filter(value =>
+    typeof value === 'string' && /^[a-z][a-z_0-9-]{0,60}$/i.test(value)
+  );
+  const message = (error?.message ?? '') + ' ' + (extension?.userPresentableMessage ?? '');
+  const hint = /permission|scope|forbidden|unauthori[sz]ed|access denied/i.test(message)
+    ? 'permission denied'
+    : /uuid|invalid.{0,20}identifier|validation/i.test(message)
+      ? 'input validation failed'
+      : /duplicate|already exists|unique constraint/i.test(message)
+        ? 'comment already exists'
+        : /not found|could not find|does not exist/i.test(message)
+          ? 'resource not found'
+          : null;
+  const details = [status && 'HTTP ' + status, ...new Set(codes), hint].filter(Boolean);
+  return operation + ' failed' + (details.length ? ' (' + details.join(', ') + ')' : '');
 }
 
 export async function readIssue(issueId, env) {
@@ -86,7 +109,7 @@ export async function readIssue(issueId, env) {
     issue(id: $id) { title description project { id } team { id } archivedAt }
   }`, { id: issueId });
   const issue = result.data?.issue;
-  if (!issue) throw new Error('Cannot read the Linear issue');
+  if (!issue) throw new Error(linearFailure('Linear issue read', result));
   if (issue.team?.id !== env.LINEAR_TEAM_ID || issue.archivedAt) return null;
   return { title: issue.title, description: issue.description, project_id: issue.project?.id ?? null };
 }
@@ -100,23 +123,32 @@ export async function postPlan(issueId, plan, env) {
     plan.questions.length ? '**Open questions**\n' + bullets(plan.questions) : '',
   ].filter(Boolean).join('\n\n');
 
+  let createFailure;
   try {
     const result = await linear(env, `mutation PostPlan($input: CommentCreateInput!) {
       commentCreate(input: $input) { success comment { id } }
     }`, { input: { id, issueId, body } });
     if (result.data?.commentCreate?.success && result.data.commentCreate.comment?.id === id) return id;
-  } catch {
-    // Linear may have committed the comment before the request timed out.
+    createFailure = linearFailure('Linear commentCreate', result);
+  } catch (error) {
+    // Linear may have saved the comment before the response failed.
+    createFailure = 'Linear commentCreate: ' + (error.message?.startsWith('Linear API') ? error.message : 'request failed');
   }
-  const existing = await linear(env, `query ExistingPlan($id: String!) {
-    comment(id: $id) { id body issue { id } }
-  }`, { id });
+  let existing;
+  try {
+    existing = await linear(env, `query ExistingPlan($id: String!) {
+      comment(id: $id) { id body issue { id } }
+    }`, { id });
+  } catch {
+    throw new Error(createFailure);
+  }
   if (existing.data?.comment?.id === id && existing.data.comment.issue?.id === issueId) {
     if (existing.data.comment.body === body) return id;
     const result = await linear(env, `mutation UpdatePlan($id: String!, $input: CommentUpdateInput!) {
       commentUpdate(id: $id, input: $input) { success comment { id } }
     }`, { id, input: { body } });
     if (result.data?.commentUpdate?.success && result.data.commentUpdate.comment?.id === id) return id;
+    throw new Error(linearFailure('Linear commentUpdate', result));
   }
-  throw new Error('Could not confirm the Linear planning comment');
+  throw new Error(createFailure);
 }
