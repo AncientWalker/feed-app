@@ -52,9 +52,16 @@ export async function makePlan(issue, env) {
 }
 
 export async function commentId(issueId) {
-  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256',
-    new TextEncoder().encode('feed-app/sah-8/plan-comment/v1/' + issueId)));
-  hash[6] = (hash[6] & 15) | 128;
+  // UUIDv5 gives retries the same ID using a widely supported UUID version.
+  const namespace = Uint8Array.from(
+    '6ba7b8119dad11d180b400c04fd430c8'.match(/../g), byte => parseInt(byte, 16)
+  );
+  const name = new TextEncoder().encode('https://github.com/AncientWalker/feed-app/linear-plan/' + issueId);
+  const input = new Uint8Array(namespace.length + name.length);
+  input.set(namespace);
+  input.set(name, namespace.length);
+  const hash = new Uint8Array(await crypto.subtle.digest('SHA-1', input));
+  hash[6] = (hash[6] & 15) | 80;
   hash[8] = (hash[8] & 63) | 128;
   const hex = Array.from(hash.slice(0, 16), byte => byte.toString(16).padStart(2, '0')).join('');
   return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-');
