@@ -15,7 +15,7 @@ const plan = {
   rationale: 'Synthetic integration test only',
   questions: [],
 };
-const id = await commentId(issueId);
+const id = commentId(issueId);
 assert.equal(await postPlan(issueId, plan, env), id);
 assert.equal(await postPlan(issueId, plan, env), id);
 assert.equal(await postPlan(issueId, { ...plan, rationale: 'Synthetic preflight update' }, env), id);

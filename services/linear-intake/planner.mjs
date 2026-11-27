@@ -51,20 +51,13 @@ export async function makePlan(issue, env) {
   return plan;
 }
 
-export async function commentId(issueId) {
-  // UUIDv5 gives retries the same ID using a widely supported UUID version.
-  const namespace = Uint8Array.from(
-    '6ba7b8119dad11d180b400c04fd430c8'.match(/../g), byte => parseInt(byte, 16)
-  );
-  const name = new TextEncoder().encode('https://github.com/AncientWalker/feed-app/linear-plan/' + issueId);
-  const input = new Uint8Array(namespace.length + name.length);
-  input.set(namespace);
-  input.set(name, namespace.length);
-  const hash = new Uint8Array(await crypto.subtle.digest('SHA-1', input));
-  hash[6] = (hash[6] & 15) | 80;
-  hash[8] = (hash[8] & 63) | 128;
-  const hex = Array.from(hash.slice(0, 16), byte => byte.toString(16).padStart(2, '0')).join('');
-  return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-');
+export function commentId(issueId) {
+  // Issue and comment IDs occupy separate namespaces in the Linear API.
+  // Reuse Linear's UUID to give each issue one valid, stable comment ID.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(issueId)) {
+    throw new Error('Planning issue must use its Linear UUIDv4');
+  }
+  return issueId.toLowerCase();
 }
 
 function plainText(value) {
@@ -107,7 +100,11 @@ function linearFailure(operation, result, status) {
         : /not found|could not find|does not exist/i.test(message)
           ? 'resource not found'
           : null;
-  const details = [status && 'HTTP ' + status, ...new Set(codes), hint].filter(Boolean);
+  const validation = extension?.validationErrors;
+  const field = (Array.isArray(validation) ? validation : [])
+    .map(entry => entry?.property)
+    .find(name => ['id', 'issueId', 'body'].includes(name));
+  const details = [status && 'HTTP ' + status, ...new Set(codes), hint, field && 'field: ' + field].filter(Boolean);
   return operation + ' failed' + (details.length ? ' (' + details.join(', ') + ')' : '');
 }
 
@@ -122,7 +119,7 @@ export async function readIssue(issueId, env) {
 }
 
 export async function postPlan(issueId, plan, env) {
-  const id = await commentId(issueId);
+  const id = commentId(issueId);
   const body = [
     '**Implementation proposal**\n' + bullets(plan.approach),
     '**Verification**\n' + bullets(plan.verification),
